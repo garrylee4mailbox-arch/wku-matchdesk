@@ -1,35 +1,35 @@
 import {clone,esc,assert,uid,now,terminal,statusName} from '../core/util.js';
-import {setScore,setSpecialStatus,confirmAdvancement,nextStageSuggestion,applyNextStage,resolveImpact,addExtraMatch,addAuxiliaryActivity,addLateEntrant,substituteDoubles,confirmFinals,archiveEvent,reviseEvent,inferResults} from '../core/tournament.js';
+import {setScore,setSpecialStatus,resolveImpact,addExtraMatch,addAuxiliaryActivity,addLateEntrant,substituteDoubles,confirmFinals,archiveEvent,reviseEvent,inferResults} from '../core/tournament.js';
 import {makeUnits} from '../core/players.js';
 import {standings} from '../core/ranking.js';
 import {validateRule} from '../core/rules.js';
 import {modal,input,select,confirm,unitOptions,toast} from '../components.js';
 import {ruleFields,readRule} from '../views/setup.js';
 import {unitName} from '../views/event.js';
+import {groupPlan,nextRoundPlan,saveGroupPlan,applyRoundPlan} from '../core/advancement.js';
+import {bindAdvancement} from '../advancement-controls.js';
 const reasonField=()=>input('reason','原因 / 依据（必填）','','text','required maxlength="500"');
 async function score(ctx,id){
   const e=ctx.event(),m=e.matches.find(m=>m.id===id);assert(e.status!=='archived','请先在成绩页进入修订');
-  await modal('录分 · '+m.label,`<div class="game-labels"><span>局数</span><b>${esc(m.lineups?.[m.a]?.name||unitName(e,m.a))}</b><span></span><b>${esc(m.lineups?.[m.b]?.name||unitName(e,m.b))}</b></div>${Array.from({length:m.rules.bestOf},(_,i)=>`<div class="score-row"><small>第 ${i+1} 局</small><input name="a${i}" type="number" min="0" max="199" inputmode="numeric" value="${m.games[i]?.[0]??''}" aria-label="第${i+1}局甲方比分"><span>:</span><input name="b${i}" type="number" min="0" max="199" inputmode="numeric" value="${m.games[i]?.[1]??''}" aria-label="第${i+1}局乙方比分"></div>`).join('')}<div class="note">未完成时点“保存草稿”；草稿不参与排名。空白末局会被忽略。关闭录分框前请先保存。</div>${m.status==='completed'?reasonField():''}${ctx.repo.data.settings.operator?`<small>操作者：${esc(ctx.repo.data.settings.operator)}</small>`:''}`,{confirm:'确认完赛',secondary:'保存草稿',onSubmit:async(f,form,intent)=>{
+  await modal('录分 · '+m.label,`<div class="game-labels"><span>局数</span><b>${esc(m.lineups?.[m.a]?.name||unitName(e,m.a))}</b><span></span><b>${esc(m.lineups?.[m.b]?.name||unitName(e,m.b))}</b></div>${Array.from({length:m.rules.bestOf},(_,i)=>`<div class="score-row"><small>第 ${i+1} 局</small><input name="a${i}" type="number" min="0" max="199" inputmode="numeric" value="${m.games[i]?.[0]??''}" aria-label="第${i+1}局${esc(m.lineups?.[m.a]?.name||unitName(e,m.a))}比分"><span>:</span><input name="b${i}" type="number" min="0" max="199" inputmode="numeric" value="${m.games[i]?.[1]??''}" aria-label="第${i+1}局${esc(m.lineups?.[m.b]?.name||unitName(e,m.b))}比分"></div>`).join('')}<div class="note">未完成时点“保存草稿”；草稿不参与排名。空白末局会被忽略。关闭录分框前请先保存。</div>${m.status==='completed'?reasonField():''}${ctx.repo.data.settings.operator?`<small>操作者：${esc(ctx.repo.data.settings.operator)}</small>`:''}`,{confirm:'确认完赛',secondary:'保存草稿',onSubmit:async(f,form,intent)=>{
     const games=[];let empty=false;for(let i=0;i<m.rules.bestOf;i++){const a=f.get('a'+i),b=f.get('b'+i);if(a===''&&b===''){empty=true;continue;}assert(!empty,'不能跳过前面的局数');assert(a!==''&&b!=='','每局需同时填写两方得分');games.push([Number(a),Number(b)]);}
     if(m.status==='completed'&&!await confirm('更正已完成比赛','本场会重新统计。所有后续场次及比分保持原样；如有影响，生成清单由管理员处理。'))return false;
     await ctx.mutateEvent('录入比分',n=>setScore(n,id,games,intent==='confirm',ctx.operator(),String(f.get('reason')||'现场录分')));toast(intent==='confirm'?'比分已保存，统计已更新':'草稿已保存，不计入排名');return true;
   }});
 }
-async function advancement(ctx,id){const e=ctx.event(),g=e.stages.flatMap(s=>s.groups).find(g=>g.id===id),r=standings(e,g),order=e.advancement[id]?.confirmed||r.rows.map(r=>r.id);
-  await modal('确认晋级位置 · '+g.name,`<div class="note">统计排名与实际晋级位置分开保存。即使将三胜选手调到第四，三胜战绩仍保持原样。未完赛或同分也可由管理员明确裁定；请记录依据。</div><div class="field-stack">${order.map((u,i)=>select('order','晋级位置 '+(i+1),g.units.map(id=>[id,unitName(e,id)]),u)).join('')}${reasonField()}</div>`,{onSubmit:async f=>{await ctx.mutateEvent('确认晋级位置',n=>{
-    confirmAdvancement(n,g,f.getAll('order'),String(f.get('reason')),ctx.operator());const later=n.matches.filter(m=>n.stages.findIndex(s=>s.id===m.stage)>n.stages.findIndex(s=>s.groups.some(x=>x.id===g.id)));if(later.length)n.impacts.push({id:uid('impact'),at:now(),source:g.id,matchIds:later.map(m=>m.id),status:'open',reason:'人工晋级位置改变，请检查后续；所有结果已保留'});
-  });return true;}});
+async function advancement(ctx,id){
+  const e=ctx.event();assert(e.status!=='archived','归档赛事请先进入修订');const plan=groupPlan(e,id);
+  await modal('调整晋级顺序 · '+plan.groups[0].name,`<div data-advancement-workspace></div>${reasonField()}`,{
+    wide:true,confirm:'确认保存晋级顺序',onOpen:dialog=>bindAdvancement(dialog,e,plan),
+    onSubmit:async f=>{await ctx.mutateEvent('确认晋级位置',n=>saveGroupPlan(n,plan,String(f.get('reason')),ctx.operator()));toast('晋级顺序已保存，原始战绩保持不变');return true;}
+  });
 }
-async function nextStage(ctx){const e=ctx.event();assert(e.status!=='archived','归档赛事请先修订');const suggestion=nextStageSuggestion(e);
-  const options=unitOptions(e);
-  await modal('检查并确认 · '+suggestion.stage.name,`<div class="note">这是自动建议。可以调整参赛者和对阵，确认后才写入赛程。轮空不产生虚构比分。</div><div class="field-stack">${suggestion.matches.map((m,i)=>`<div class="fields">${select('a'+i,m.label+' · 甲方',options,m.a)}${select('b'+i,'乙方',[['','轮空（无比分）'],...options],m.b||'')}</div>`).join('')}${reasonField()}</div>`,{confirm:'确认生成下一阶段',onSubmit:async f=>{
-    suggestion.matches.forEach((m,i)=>{m.a=f.get('a'+i);m.b=f.get('b'+i)||null;m.status=m.b?'pending':'bye';m.winner=m.b?null:m.a;});
-    if(suggestion.stage.type==='placement'){
-      for(const group of suggestion.stage.groups){const ms=suggestion.matches.filter(m=>m.pool===group.id);if(ms.length)group.units=[...new Set(ms.flatMap(m=>[m.a,m.b]).filter(Boolean))];}
-      const all=suggestion.stage.groups.flatMap(g=>g.units);assert(new Set(all).size===all.length,'同一选手不能进入多个名次组');
-    }
-    await ctx.mutateEvent('确认下一阶段',n=>applyNextStage(n,suggestion,ctx.operator(),String(f.get('reason'))));return true;
-  }});
+async function nextStage(ctx){
+  const e=ctx.event(),plan=nextRoundPlan(e);
+  await modal(plan.kind==='groups'?'确认晋级名单与下一轮对阵':'安排下一轮对阵',`<div data-advancement-workspace></div>${reasonField()}`,{
+    wide:true,confirm:'确认名单并生成下一轮',onOpen:dialog=>bindAdvancement(dialog,e,plan),
+    onSubmit:async f=>{await ctx.mutateEvent('确认下一阶段',n=>applyRoundPlan(n,plan,String(f.get('reason')),ctx.operator()));toast('下一轮对阵已确认，原有比分完整保留');return true;}
+  });
 }
 async function extra(ctx,pool=null,formal=false){const e=ctx.event(),g=e.stages.flatMap(s=>s.groups).find(g=>g.id===pool),options=(g?g.units:e.units.map(u=>u.id)).map(id=>[id,unitName(e,id)]);
   await modal(formal?'管理员新增正式比赛':'安排加赛 / 趣味赛',`<div class="field-stack"><div class="fields">${select('a','甲方',options,options[0]?.[0])}${select('b','乙方',options,options[1]?.[0])}</div>${!formal?select('kind','用途',[['tiebreak','同分加赛（不计原组累计得分）'],['exhibition','趣味赛（不影响正式名次）']],pool?'tiebreak':'exhibition'):select('pool','计入哪个统计组',[['','不计组内统计'],...e.stages.flatMap(s=>s.groups.map(g=>[g.id,s.name+' / '+g.name]))],pool||'')}${formal?select('role','淘汰阶段用途',[['classification','独立排位赛（不参与主淘汰晋级）'],['main','主淘汰或重赛（参与晋级）']],'classification'):''}${ruleFields({target:formal?11:3,bestOf:1,cap:formal?11:3,winByTwo:false})}${input('note','关联的同分选手、所解决名次 / 活动备注')}${reasonField()}</div>`,{onSubmit:async f=>{await ctx.mutateEvent('新增比赛',n=>{const p=formal?(f.get('pool')||null):pool,m=addExtraMatch(n,f.get('a'),f.get('b'),{tiebreak:!formal&&f.get('kind')==='tiebreak',exhibition:!formal&&f.get('kind')==='exhibition',rule:readRule(f),note:String(f.get('note'))+'；'+String(f.get('reason')),pool:p});if(p)m.stage=n.stages.find(s=>s.groups.some(g=>g.id===p)).id;if(formal&&!p)m.classification=f.get('role')==='classification';});return true;}});
