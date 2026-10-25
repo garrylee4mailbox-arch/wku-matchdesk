@@ -13,3 +13,9 @@ export function saveImprovement(data,fields,id=null){
   if(old)data.improvements[index]=item;else data.improvements.push(item);
   return item;
 }
+
+export function deleteImprovement(data,id){
+  const index=data.improvements.findIndex(item=>item.id===id);
+  assert(index>=0,'这条问题已不存在，请重新打开待改进页面');
+  return data.improvements.splice(index,1)[0];
+}

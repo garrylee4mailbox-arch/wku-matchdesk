@@ -1,4 +1,4 @@
-import {saveImprovement} from '../core/improvement-records.js';
+import {saveImprovement,deleteImprovement} from '../core/improvement-records.js';
 import {modal,input,select,confirm,button,badge,chooseFile,download,toast} from '../components.js';
 import {inspectImprovements,applyImprovements} from '../core/backup.js';
 import {esc,now,uid,time} from '../core/util.js';
@@ -18,7 +18,11 @@ export async function playerProfile(ctx,id){const player=ctx.repo.data.players.f
 }
 export async function editTodo(ctx,id=null,targetStatus=null){
   const saved=ctx.repo.data.improvements.find(i=>i.id===id),old=saved?{...saved,status:targetStatus||saved.status}:null;
-  return modal(old?'编辑改进项':'记录待改进',`<div class="field-stack">${input('title','标题',old?.title||'','text','required maxlength="150"')}<label>描述<textarea name="description">${esc(old?.description||'')}</textarea></label><div class="fields">${input('module','所属模块',old?.module||'其他')}${select('priority','优先级',[['高','高'],['中','中'],['低','低']],old?.priority||'中')}${select('status','状态',[['todo','待处理'],['doing','进行中'],['done','已完成']],old?.status||'todo')}</div><label>完成说明 / 剩余内容<textarea name="completionNote">${esc(old?.completionNote||'')}</textarea></label></div>`,{onSubmit:async f=>{
+  return modal(old?'编辑改进项':'记录待改进',`<div class="field-stack">${input('title','标题',old?.title||'','text','required maxlength="150"')}<label>描述<textarea name="description">${esc(old?.description||'')}</textarea></label><div class="fields">${input('module','所属模块',old?.module||'其他')}${select('priority','优先级',[['高','高'],['中','中'],['低','低']],old?.priority||'中')}${select('status','状态',[['todo','待处理'],['doing','进行中'],['done','已完成']],old?.status||'todo')}</div><label>完成说明 / 剩余内容<textarea name="completionNote">${esc(old?.completionNote||'')}</textarea></label></div>`,{secondary:old?'删除':null,secondaryDanger:true,secondaryNoValidate:true,onSubmit:async(f,form,intent)=>{
+    if(intent==='secondary'){
+      if(!await modal('删除这条问题？',`<p>将删除：<b>${esc(saved.title)}</b>。</p><div class="note amber">确认后从待改进清单移除这条记录。误删可点击“回到上一步”恢复。</div>`,{confirm:'确认删除'}))return false;
+      const next=ctx.copy();deleteImprovement(next,id);await ctx.save(next,'删除改进项','用户确认删除：'+saved.title);toast('问题已删除，误操作可回到上一步恢复');return true;
+    }
     const next=ctx.copy();saveImprovement(next,Object.fromEntries(f),id);await ctx.save(next,old?'编辑改进项':'新增改进项');return true;
   }});
 }
