@@ -14,7 +14,7 @@ export function validateEvent(e){
   for(const u of e.units){assert(typeof u.name==='string'&&Array.isArray(u.members)&&u.members.length===(e.config.type==='doubles'?2:1),'参赛快照无效');for(const p of u.members){assert(typeof p.id==='string'&&typeof p.name==='string','队员快照无效');players.push(p.id);}}
   assert(new Set(players).size===players.length,'同届队员重复参赛');validateRule(e.config.rule);if(e.config.stageRule)validateRule(e.config.stageRule);
   assert(Array.isArray(e.config.sort)&&e.config.sort.length&&e.config.sort.every(k=>['wins','points','gameDiff','pointDiff','headToHead'].includes(k)),'排名配置无效');
-  const groups=new Set();for(const s of e.stages){assert(Array.isArray(s.groups),'阶段分组无效');for(const g of s.groups){assert(typeof g.id==='string'&&!groups.has(g.id),'分组ID重复');groups.add(g.id);assert(Array.isArray(g.units)&&new Set(g.units).size===g.units.length&&g.units.every(id=>units.has(id)),'分组引用无效');}}
+  const groups=new Set();for(const s of e.stages){if(s.confirmation)assert(typeof s.confirmation.at==='string'&&Number.isFinite(Date.parse(s.confirmation.at))&&typeof s.confirmation.operator==='string'&&Number.isInteger(s.confirmation.count)&&s.confirmation.count>=1,'名单确认记录无效');assert(Array.isArray(s.groups),'阶段分组无效');for(const g of s.groups){assert(typeof g.id==='string'&&!groups.has(g.id),'分组ID重复');groups.add(g.id);assert(Array.isArray(g.units)&&new Set(g.units).size===g.units.length&&g.units.every(id=>units.has(id)),'分组引用无效');}}
   for(const m of e.matches){
     const valid=id=>units.has(id)||(m.exhibition&&activityUnits.has(id));assert(valid(m.a)&&(!m.b||valid(m.b))&&m.a!==m.b,'对阵引用无效');
     assert(e.stages.some(s=>s.id===m.stage)||m.stage==='extra','比赛阶段引用无效');

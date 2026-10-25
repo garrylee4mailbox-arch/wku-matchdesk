@@ -64,8 +64,8 @@ export function movePlan(plan,key,from,to){
 }
 export function sourceLabel(event,plan,id){
   if(!id)return '这个位置没有对手，不录入虚构比分';
-  for(const group of plan.groups){const index=group.order.indexOf(id);if(index>=0)return `${group.name} · 晋级顺序第 ${index+1} 位`;}
-  const previous=event.stages.filter(s=>s.type==='knockout').at(-1);
+  for(const group of [...plan.groups,...(plan.sourceGroups||[])]){const index=group.order.indexOf(id);if(index>=0)return `${group.name} · 晋级顺序第 ${index+1} 位`;}
+  const previous=event.stages.filter(s=>s.type==='knockout'&&(!plan.existingStageId||event.stages.indexOf(s)<event.stages.findIndex(x=>x.id===plan.existingStageId))).at(-1);
   const matches=event.matches.filter(m=>m.stage===previous?.id&&m.label!=='季军赛'&&!m.exhibition&&!m.tiebreak&&!m.classification&&m.status!=='cancelled');
   for(const [index,m] of matches.entries()){
     if(m.winner===id)return m.status==='bye'?`上一轮第 ${index+1} 场 · 轮空晋级`:`上一轮第 ${index+1} 场 · 胜者`;
@@ -83,12 +83,12 @@ export function planWarnings(event,plan){
     const base=suggestedRound(event,plan),original=base.matches.flatMap(m=>[m.a,m.b]).filter(Boolean),current=plan.draw.flatMap(lane=>lane.slots).filter(Boolean);
     const excluded=original.filter(id=>!current.includes(id)),added=current.filter(id=>!original.includes(id));
     const name=id=>event.units.find(u=>u.id===id)?.name||id;
-    if(excluded.length||added.length)warnings.push(`管理员更换了晋级名单：${excluded.length?'移出 '+excluded.map(name).join('、')+'；':''}${added.length?'加入 '+added.map(name).join('、')+'。':''}请填写调整依据。`);
+    if(excluded.length||added.length)warnings.push(`管理员更换了晋级名单：${excluded.length?'移出 '+excluded.map(name).join('、')+'；':''}${added.length?'加入 '+added.map(name).join('、')+'。':''}请再次核对名单，调整说明可选填。`);
   }
   return warnings;
 }
 export function saveGroupPlan(event,plan,reason,operator){
-  assert(reason.trim(),'请填写确认或调整依据');
+  reason=String(reason||'').trim()||'管理员已核对晋级名单与对阵';
   for(const item of plan.groups){
     const sourceIndex=event.stages.findIndex(stage=>stage.groups.some(g=>g.id===item.id));
     const group=event.stages[sourceIndex]?.groups.find(g=>g.id===item.id);assert(group,'小组已发生变化，请重新打开');
@@ -99,8 +99,42 @@ export function saveGroupPlan(event,plan,reason,operator){
   }
 }
 export function applyRoundPlan(event,plan,reason,operator){
-  assert(reason.trim(),'请填写确认或调整依据');
+  reason=String(reason||'').trim()||'管理员已核对晋级名单与对阵';
   const suggestion=previewRound(event,plan);
   if(plan.kind==='groups')saveGroupPlan(event,plan,reason,operator);
+  suggestion.stage.confirmation={at:now(),operator,count:1};
   applyNextStage(event,suggestion,operator,reason);
+}
+
+export function roundEditable(event,stageId){
+  const stage=event.stages.find(s=>s.id===stageId);
+  return event.status!=='archived'&&stage?.type==='knockout'&&event.stages.at(-1).id===stageId&&event.matches.filter(m=>m.stage===stageId).every(m=>!m.games.length&&['pending','bye'].includes(m.status));
+}
+export function confirmedRoundPlan(event,stageId){
+  assert(roundEditable(event,stageId),'本轮已有比赛记录或后续赛程，可再次核对名单；调整已进行的对阵请使用比赛管理');
+  const stage=event.stages.find(s=>s.id===stageId),matches=event.matches.filter(m=>m.stage===stageId&&!m.exhibition&&!m.tiebreak&&!m.classification);
+  const firstKnockout=event.stages.find(s=>s.type==='knockout')?.id===stageId;
+  const plan={kind:'knockout',existingStageId:stageId,groups:[],sourceGroups:firstKnockout?event.stages[0].groups.map(g=>orderGroup(event,g)):[],base:clone({stage,matches}),draw:null};
+  previewRound(event,plan);return plan;
+}
+export function acknowledgeRound(event,stageId,operator,reason=''){
+  assert(event.status!=='archived','归档赛事请先进入修订');
+  const stage=event.stages.find(s=>s.id===stageId);assert(stage,'找不到本轮赛程');
+  const before=clone(stage.confirmation||null);
+  stage.confirmation={at:now(),operator,count:(before?.count||1)+1};
+  event.audit.push({at:now(),operator,action:'再次核对晋级名单',reason:String(reason||'').trim()||'已再次核对本轮名单，比赛记录保持原样',before,after:{confirmation:clone(stage.confirmation),matches:clone(event.matches.filter(m=>m.stage===stageId))}});
+}
+export function reconfirmRoundPlan(event,plan,reason,operator){
+  assert(roundEditable(event,plan.existingStageId),'赛程已变化或本轮已开始，请关闭后重新核对');
+  const suggestion=previewRound(event,plan),before=clone(event.matches.filter(m=>m.stage===plan.existingStageId));
+  const live=before.filter(m=>!m.exhibition&&!m.tiebreak&&!m.classification);
+  assert(live.length===suggestion.matches.length&&suggestion.matches.every(m=>live.some(x=>x.id===m.id)),'本轮场次已变化，请重新打开');
+  const changed=suggestion.matches.some(m=>{const old=live.find(x=>x.id===m.id);return old.a!==m.a||old.b!==m.b;});
+  for(const m of suggestion.matches){
+    const target=event.matches.find(x=>x.id===m.id);Object.assign(target,{a:m.a,b:m.b,status:m.status,winner:m.winner});
+    target.lineups={};for(const id of [m.a,m.b].filter(Boolean)){const u=event.units.find(u=>u.id===id);if(u?.currentMembers)target.lineups[id]={name:u.currentName,members:clone(u.currentMembers)};}
+  }
+  if(changed)event.finals=null;
+  acknowledgeRound(event,plan.existingStageId,operator,reason);
+  event.audit.push({at:now(),operator,action:changed?'调整未开始的本轮对阵':'确认保留本轮对阵',reason:String(reason||'').trim()||'再次核对晋级名单及对阵',before,after:clone(event.matches.filter(m=>m.stage===plan.existingStageId))});
 }

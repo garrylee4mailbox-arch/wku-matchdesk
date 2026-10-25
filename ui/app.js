@@ -25,7 +25,7 @@ function render(){if(!repo.data)return;if(state.route==='event'&&!ctx.event())st
   else if(state.route==='history')content=history(repo.data,state.historyQuery);
   else if(state.route==='improvements')content=improvementPage(repo.data,state.todoFilter);
   else if(state.route==='backup')content=backupPage(ctx);
-  else if(state.route==='event')content=eventPage(ctx.event(),state.eventTab,state.matchFilter);
+  else if(state.route==='event')content=eventPage(ctx.event(),state.eventTab,state.matchFilter,state.eventStage);
   else content=dashboard(repo.data);
   const routeTitle=state.route==='event'?ctx.event().title:nav.find(n=>n[0]===state.route)?.[2]||'创建赛事';
   document.querySelector('#app').innerHTML=`<div class="shell"><aside class="sidebar"><div class="brand"><img src="/mark.svg" alt="羽毛球标志"><div><b>WKU</b><small>BADMINTON CLUB</small></div></div><div class="nav-label">比赛与队伍</div><nav class="nav" aria-label="主导航">${nav.map(([v,icon,t])=>`<button data-action="route-${v}" class="${state.route===v||v==='home'&&['event','create'].includes(state.route)?'active':''}"><span>${icon}</span>${t}</button>`).join('')}</nav><div class="sidebar-foot"><span class="dot"></span>离线模式 · 本机保存<p>每一场认真对待<br>每一步有据可查</p><p>WKU MATCH DESK / v1.0.0</p></div></aside><div class="workspace"><header class="topbar"><div class="crumb">校队工作台 <b>/ ${esc(routeTitle)}</b></div><div class="top-actions"><span id="save-status" class="saved ${repo.failed?'error':''}">${repo.failed?'保存失败 · 请重新载入':state.route==='create'?'创建草稿 · 确认后保存':'● 已保存到本机文件'}</span><button data-action="reload" class="small quiet" ${repo.failed?'':'hidden'}>重新载入</button><button data-action="operator" class="small quiet">记录员：${esc(ctx.operator())}</button><button data-action="undo" class="small" ${repo.history.length?'':'disabled'}>↶ 撤销</button><button data-action="backup" class="small">导出备份 ↗</button></div></header><main>${content}<footer class="footer">WENZHOU-KEAN UNIVERSITY · BADMINTON MATCH DESK</footer></main></div></div>`;
@@ -33,8 +33,8 @@ function render(){if(!repo.data)return;if(state.route==='event'&&!ctx.event())st
 repo.onstatus=status=>{const el=document.querySelector('#save-status');if(el){el.textContent={saving:'正在保存到本机…',saved:'● 已保存到本机文件',error:'保存失败 · 请重新载入'}[status];el.classList.toggle('error',status==='error');}if(status==='error'){const reload=document.querySelector('[data-action=reload]');if(reload)reload.hidden=false;}};
 const actions={...setupActions(ctx),...teamActions(ctx),...tournamentActions(ctx),...dataActions(ctx),
   create:()=>{state.past=false;state.route='create';state.draft=newDraft();render();},'past-event':()=>{state.past=true;state.route='create';state.draft=newDraft();state.draft.title='历史赛事补录';render();},
-  'open-event':el=>{if(el.dataset.closeDialog)el.closest('dialog')?.querySelector('[data-close]')?.click();state.eventId=el.dataset.id;state.eventTab='schedule';state.route='event';state.matchFilter='all';render();},
-  'event-tab':el=>{state.eventTab=el.dataset.tab;render();},
+  'open-event':el=>{if(el.dataset.closeDialog)el.closest('dialog')?.querySelector('[data-close]')?.click();state.eventId=el.dataset.id;state.eventTab='schedule';state.eventStage=null;state.route='event';state.matchFilter='all';render();window.scrollTo({top:0,behavior:'instant'});},
+  'event-tab':el=>{state.eventTab=el.dataset.tab;render();window.scrollTo({top:0,behavior:'smooth'});},
   operator:async()=>{await modal('选择本地操作者',input('operator','记录员 / 管理员姓名',ctx.operator(),'text','required maxlength="60"'),{onSubmit:async f=>{const next=ctx.copy();next.settings.operator=String(f.get('operator')).trim();assert(next.settings.operator,'姓名不能为空');await ctx.save(next,'切换本地操作者');return true;}});},
   reload:async()=>{await repo.load();repo.failed=false;repo.history=[];render();toast('已重新读取本机数据');}
 };

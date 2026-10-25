@@ -54,7 +54,7 @@ test('已有后续赛程时修改单组顺序只记录核查影响，不更改�
 });
 test('小组未完赛或同分显示人工确认提示，未完成淘汰轮仍拒绝晋级',()=>{
   const e=fixture(),plan=nextRoundPlan(e);assert.ok(planWarnings(e,plan).some(w=>w.includes('未全部完赛')));
-  assert.throws(()=>applyRoundPlan(e,plan,'','测试'),/依据/);complete(e);advance(e);assert.throws(()=>nextRoundPlan(e),/完成本轮/);
+  const draft=clone(e);applyRoundPlan(draft,plan,'','测试');assert.ok(draft.audit.at(-1).reason);complete(e);advance(e);assert.throws(()=>nextRoundPlan(e),/完成本轮/);
 });
 test('晋级界面使用名单、来源与对阵预览，不再出现甲乙方，支持上下移动',()=>{
   const e=fixture();complete(e);const plan=nextRoundPlan(e),s=previewRound(e,plan),html=advancementWorkspace(e,plan,s);
