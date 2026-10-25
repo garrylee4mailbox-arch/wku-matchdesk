@@ -14,5 +14,5 @@ export function eventFlow(event){
   if(stage.type==='knockout'||stage.type==='placement'||event.config.format==='roundrobin'){
     if(!complete||stage.type==='knockout'&&matches.some(m=>m.status!=='cancelled'&&!m.winner))return {kind:'score',stage:stage.id,title:stage.name+' · 继续记分',text:'请完成本轮记分；名单可在“晋级与赛程”重新核对。',button:'前往本轮记分 →'};
   }
-  return {kind:'advance',stage:stage.id,title:complete?'本轮已完成，可安排下一轮':'小组赛进行中',text:complete?'核对晋级名单及对阵后，确认生成下一轮。':'完成小组赛后可安排下一轮；提前确认时请核对人工晋级顺序。',button:'核对晋级名单与下一轮 →'};
+  return {kind:'advance',ready:complete,stage:stage.id,title:complete?'本轮已完成，可安排下一轮':'小组赛进行中',text:complete?'核对晋级名单及对阵后，确认生成下一轮。':'完成小组赛后可安排下一轮；提前确认时请核对人工晋级顺序。',button:'核对晋级名单与下一轮 →'};
 }

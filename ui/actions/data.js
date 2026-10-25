@@ -23,5 +23,11 @@ export function dataActions(ctx){return {
   snapshots:async()=>{const backups=await ctx.repo.backups();await modal('本机自动快照',`<div class="note amber">恢复会替换整个本机数据库。选择后先预览，确认恢复前会再保存一份当前数据库。</div>${backups.length?`<div class="field-stack">${backups.map((b,i)=>`<label class="check"><input type="radio" name="snapshot" value="${esc(b.name)}" ${i===0?'checked':''}>${time(b.at)} · ${Math.ceil(b.bytes/1024)} KB</label>`).join('')}</div>`:empty('暂无自动快照','首次创建数据后，每次保存会保留上一版本。')}`,{confirm:'预览并恢复',onSubmit:async f=>{if(!f.get('snapshot'))return true;const snap=await ctx.repo.readBackup(f.get('snapshot'));validateData(snap.data);if(!await confirm('恢复快照？',`快照包含 ${snap.data.players.length} 名队员、${snap.data.events.length} 届赛事。将替换当前全库，当前版本先自动备份。`))return false;await ctx.save(clone(snap.data),'从本机自动快照恢复');ctx.state.route='home';ctx.render();return true;}});},
   'legacy-export':el=>{const l=ctx.repo.data.legacySources.find(l=>l.id===el.dataset.id);download(l.raw,l.filename);},
   demo:async()=>{if(!await confirm('载入八人回归示例','将明确添加一届标为“非正式历史”的示例赛事。不会替换已有赛事，也不把示例队员加入固定库。示例已记录真实回归比分，决赛、季军赛和低位省略场保留未进行。'))return;const d=regressionDemo(),next=ctx.copy();next.events.push(d.event);ctx.state.eventId=d.event.id;ctx.state.eventTab='rankings';ctx.state.route='event';await ctx.save(next,'载入八人回归示例','经用户明确选择创建，不是正式历史');},
-  undo:async()=>{if(!await confirm('撤销最近一次操作','恢复本次打开期间上一操作前的全库数据。当前版本会先自动备份；重启后可从快照恢复。'))return;await ctx.repo.undo();ctx.render();toast('已撤销');}
+  undo:async()=>{
+    const step=ctx.repo.previousStep;
+    if(!step){toast('本次打开期间没有可回到的上一步');return;}
+    const title=step.view?.title;
+    await modal('回到上一步',`<p>即将放弃最近一次操作：<b>${esc(step.action)}</b>${title?'（'+esc(title)+'）':''}。</p><div class="note amber">这一步的内容将不再作为当前记录保存，页面和数据会回到执行这一步之前。它会影响最近一次操作涉及的数据。</div><p class="field-help">例如：刚录入的比分会恢复到录入前；刚取消的赛事会重新出现。操作前仍会保留自动快照。</p>`,{confirm:'放弃这一步并返回',onSubmit:async()=>{const restored=await ctx.repo.undo();ctx.restoreView(restored?.view);toast('已回到上一步，刚才那一步的内容已放弃');return true;}});
+  }
+
 };}

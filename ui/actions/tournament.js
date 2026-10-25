@@ -1,3 +1,5 @@
+import {captureViewport,restoreViewport} from '../viewport.js';
+import {cancelEvent} from '../core/event-records.js';
 import {eventFlow} from '../core/event-flow.js';
 import {clone,esc,assert,uid,now,terminal,statusName} from '../core/util.js';
 import {setScore,setSpecialStatus,resolveImpact,addExtraMatch,addAuxiliaryActivity,addLateEntrant,substituteDoubles,confirmFinals,archiveEvent,reviseEvent,inferResults} from '../core/tournament.js';
@@ -12,12 +14,13 @@ import {bindAdvancement} from '../advancement-controls.js';
 const reasonField=()=>input('reason','原因 / 依据（必填）','','text','required maxlength="500"');
 const optionalReasonField=()=>input('reason','补充说明（选填）','','text','maxlength="500"');
 async function score(ctx,id){
-  const e=ctx.event(),m=e.matches.find(m=>m.id===id);assert(e.status!=='archived','请先在成绩页进入修订');
+  const position=captureViewport(id),e=ctx.event(),m=e.matches.find(m=>m.id===id);assert(e.status!=='archived','请先在成绩页进入修订');
   await modal('录分 · '+m.label,`<div class="game-labels"><span>局数</span><b>${esc(m.lineups?.[m.a]?.name||unitName(e,m.a))}</b><span></span><b>${esc(m.lineups?.[m.b]?.name||unitName(e,m.b))}</b></div>${Array.from({length:m.rules.bestOf},(_,i)=>`<div class="score-row"><small>第 ${i+1} 局</small><input name="a${i}" type="number" min="0" max="199" inputmode="numeric" value="${m.games[i]?.[0]??''}" aria-label="第${i+1}局${esc(m.lineups?.[m.a]?.name||unitName(e,m.a))}比分"><span>:</span><input name="b${i}" type="number" min="0" max="199" inputmode="numeric" value="${m.games[i]?.[1]??''}" aria-label="第${i+1}局${esc(m.lineups?.[m.b]?.name||unitName(e,m.b))}比分"></div>`).join('')}<div class="note">未完成时点“保存草稿”；草稿不参与排名。空白末局会被忽略。关闭录分框前请先保存。</div>${m.status==='completed'?reasonField():''}${ctx.repo.data.settings.operator?`<small>操作者：${esc(ctx.repo.data.settings.operator)}</small>`:''}`,{confirm:'确认完赛',secondary:'保存草稿',onSubmit:async(f,form,intent)=>{
     const games=[];let empty=false;for(let i=0;i<m.rules.bestOf;i++){const a=f.get('a'+i),b=f.get('b'+i);if(a===''&&b===''){empty=true;continue;}assert(!empty,'不能跳过前面的局数');assert(a!==''&&b!=='','每局需同时填写两方得分');games.push([Number(a),Number(b)]);}
     if(m.status==='completed'&&!await confirm('更正已完成比赛','本场会重新统计。所有后续场次及比分保持原样；如有影响，生成清单由管理员处理。'))return false;
-    await ctx.mutateEvent('录入比分',n=>setScore(n,id,games,intent==='confirm',ctx.operator(),String(f.get('reason')||'现场录分')));const flow=eventFlow(ctx.event());toast(intent==='confirm'?(flow.kind==='results'?'本届场次已完成，请点击顶部提示查看比赛结果':flow.kind==='advance'?'比分已保存，可核对下一轮晋级名单':'比分已保存，统计已更新'):'草稿已保存，不计入排名');if(intent==='confirm'&&['results','advance'].includes(flow.kind))window.scrollTo({top:0,behavior:'smooth'});return true;
+    await ctx.mutateEvent('录入比分',n=>setScore(n,id,games,intent==='confirm',ctx.operator(),String(f.get('reason')||'现场录分')));const flow=eventFlow(ctx.event());toast(intent==='confirm'?(flow.kind==='results'?'本届场次已完成，可在“成绩与归档”查看结果':flow.kind==='advance'&&flow.ready?'比分已保存，可核对下一轮晋级名单':'比分已保存，统计已更新'):'草稿已保存，不计入排名');return true;
   }});
+  restoreViewport(position);
 }
 async function advancement(ctx,id){
   const e=ctx.event();assert(e.status!=='archived','归档赛事请先进入修订');const plan=groupPlan(e,id);
@@ -76,8 +79,16 @@ async function activity(ctx){const e=ctx.event(),roster=[...new Map([...e.units.
 async function lateEntrant(ctx){const e=ctx.event(),available=ctx.repo.data.players.filter(p=>p.active&&!e.units.some(u=>u.members.some(x=>x.id===p.id)||u.currentMembers?.some(x=>x.id===p.id))),opts=available.map(p=>[p.id,p.name]);assert(available.length>=(e.config.type==='doubles'?2:1),'请先在队员库增加未在本届参赛的队员');
   await modal('管理员补充本届名单',`<div class="note amber">增加稳定参赛快照，不自动改写或删除任何既有赛程。请通过新增正式比赛补排对阵；全部旧结果继续保留。</div><div class="field-stack">${select('p1','新增队员',opts,opts[0]?.[0])}${e.config.type==='doubles'?select('p2','固定双打搭档',opts,opts[1]?.[0]):''}${select('group','加入小组',[['','暂不入组 / 手动安排'],...e.stages[0]?.groups.map(g=>[g.id,g.name])||[]],'')}${reasonField()}</div>`,{onSubmit:async f=>{const ps=[available.find(p=>p.id===f.get('p1'))];if(e.config.type==='doubles')ps.push(available.find(p=>p.id===f.get('p2')));const units=makeUnits(ps,e.config.type,e.config.type==='doubles'?[[ps[0].id,ps[1].id]]:[]);await ctx.mutateEvent('补充本届名单',n=>addLateEntrant(n,units[0],f.get('group'),String(f.get('reason')),ctx.operator()));return true;}});
 }
+async function cancelTournament(ctx){
+  const e=ctx.event();assert(e.status!=='archived','归档赛事请先进入修订');
+  await modal('取消整届赛事',`<div class="note amber"><b>${esc(e.title)}</b><p>取消后，本届参赛名单快照、赛程、比分和成绩将从赛事台及档案中移除，无须先完成比赛或归档。</p></div><p>固定队员库和其他赛事保持原样。如有误操作，可立即点击“回到上一步”恢复本届记录。</p>`,{confirm:'确认取消并移除本届',onSubmit:async()=>{
+    const next=ctx.copy();cancelEvent(next,e.id);
+    await ctx.save(next,'取消整届赛事','用户确认取消并移除：'+e.title);
+    ctx.state.route='home';ctx.state.eventId=null;ctx.state.eventTab='schedule';ctx.state.eventStage=null;ctx.render();window.scrollTo({top:0,behavior:'instant'});toast('本届已取消并移除，无需归档；误操作可回到上一步恢复');return true;
+  }});
+}
 export function tournamentActions(ctx){return {
-  'view-stage':el=>{ctx.state.eventStage=el.dataset.id;ctx.state.eventTab='progression';ctx.render();},'flow-score':()=>flowScore(ctx),'reconfirm-stage':el=>reconfirmStage(ctx,el.dataset.id),score:el=>score(ctx,el.dataset.id),advancement:el=>advancement(ctx,el.dataset.id),'next-stage':()=>nextStage(ctx),'add-extra':()=>extra(ctx),'add-activity':()=>activity(ctx),'late-entrant':()=>lateEntrant(ctx),'add-match':()=>extra(ctx,null,true),'extra-for-group':el=>extra(ctx,el.dataset.id),'match-admin':el=>manageMatch(ctx,el.dataset.id),'confirm-finals':()=>finalDialog(ctx),impact:el=>impact(ctx,el.dataset.id),'impact-item':el=>impact(ctx,el.dataset.impact,el.dataset.match),'edit-config':()=>editConfig(ctx),'edit-groups':()=>editGroups(ctx),substitute:()=>substitute(ctx),
+  'cancel-event':()=>cancelTournament(ctx),'view-stage':el=>{ctx.state.eventStage=el.dataset.id;ctx.state.eventTab='progression';ctx.render();},'flow-score':()=>flowScore(ctx),'reconfirm-stage':el=>reconfirmStage(ctx,el.dataset.id),score:el=>score(ctx,el.dataset.id),advancement:el=>advancement(ctx,el.dataset.id),'next-stage':()=>nextStage(ctx),'add-extra':()=>extra(ctx),'add-activity':()=>activity(ctx),'late-entrant':()=>lateEntrant(ctx),'add-match':()=>extra(ctx,null,true),'extra-for-group':el=>extra(ctx,el.dataset.id),'match-admin':el=>manageMatch(ctx,el.dataset.id),'confirm-finals':()=>finalDialog(ctx),impact:el=>impact(ctx,el.dataset.id),'impact-item':el=>impact(ctx,el.dataset.impact,el.dataset.match),'edit-config':()=>editConfig(ctx),'edit-groups':()=>editGroups(ctx),substitute:()=>substitute(ctx),
   archive:async()=>{
     const pending=ctx.event().impacts.filter(i=>i.status==='open').length;
     if(pending){ctx.state.eventTab='admin';ctx.render();toast(`还有 ${pending} 项赛程改动待确认。请在下方影响清单中选择保留、作废或重赛。`,true);return;}
