@@ -28,7 +28,6 @@ export async function editTodo(ctx,id=null,targetStatus=null){
 }
 export function teamActions(ctx){return {
   'player-add':()=>editPlayer(ctx), 'player-temp':()=>editPlayer(ctx,null,true), 'player-edit':el=>editPlayer(ctx,el.dataset.id),'player-profile':el=>playerProfile(ctx,el.dataset.id),
-  'seed-roster':async()=>{const names=['富泽宇','邹子慕','胡恩泽','何歆彤','朱政德','夏熠然','朱序元','杨清雅','司逸湘','李冠霖'],missing=names.filter(name=>!ctx.repo.data.players.some(p=>p.name===name));if(!missing.length)throw Error('这些姓名已在队员库中');if(!await confirm('从旧资料整理可编辑名单',`将新增：${missing.join('、')}。这些姓名来自旧程序与回归案例，只是可编辑的初始资料，并非完整校队名单；性别全部保留未知，记录员不自动参赛。`))return;const next=ctx.copy();missing.forEach(name=>next.players.push(makePlayer(name)));await ctx.save(next,'从旧资料初始化名单');},
   'todo-add':()=>editTodo(ctx),'todo-edit':el=>editTodo(ctx,el.dataset.id),
   'todo-export':()=>download(JSON.stringify({schema:'wku-improvements/v1',version:ctx.repo.data.version,exportedAt:now(),items:ctx.repo.data.improvements},null,2),'WKU-improvements.json'),
   'todo-import':async()=>{const file=await chooseFile();if(!file)return;if(file.size>2*1024*1024)throw Error('改进清单超过2MB');const preview=inspectImprovements(JSON.parse(await file.text()),ctx.repo.data);if(!await confirm('导入改进清单',`将新增 ${preview.added} 项、更新相同ID的 ${preview.existing} 项。其他本地条目保留；更新前自动备份。完成说明和原有记录随清单保存。`))return;await ctx.save(applyImprovements(ctx.repo.data,preview),'导入版本改进清单');toast('改进清单与版本状态已更新');}

@@ -79,23 +79,23 @@ test('非二次幂淘汰签位轮空，无空对空或虚构比分',()=>{
 });
 test('八人案例：A组原战绩和累计得分，顺延不改变战绩',()=>{
   const {event:e}=regressionDemo(),r=standings(e,e.stages[0].groups[0]);
-  assert.deepEqual(r.rows.map(r=>[e.units.find(u=>u.id===r.id).name,r.wins,r.losses,r.points]),[['李冠霖',3,0,33],['夏熠然',2,1,28],['杨清雅',1,2,30],['朱序元',0,3,19]]);
-  assert.deepEqual(e.advancement[e.stages[0].groups[0].id].confirmed.map(id=>e.units.find(u=>u.id===id).name),['夏熠然','杨清雅','朱序元','李冠霖']);
+  assert.deepEqual(r.rows.map(r=>[e.units.find(u=>u.id===r.id).name,r.wins,r.losses,r.points]),[['虚构选手01',3,0,33],['虚构选手02',2,1,28],['虚构选手03',1,2,30],['虚构选手04',0,3,19]]);
+  assert.deepEqual(e.advancement[e.stages[0].groups[0].id].confirmed.map(id=>e.units.find(u=>u.id===id).name),['虚构选手02','虚构选手03','虚构选手04','虚构选手01']);
 });
 test('八人案例：B组胜场后累计得分优先于相互胜负',()=>{
   const {event:e}=regressionDemo(),r=standings(e,e.stages[0].groups[1]);
-  assert.deepEqual(r.rows.map(r=>[e.units.find(u=>u.id===r.id).name,r.wins,r.points]),[['胡恩泽',2,32],['朱政德',2,31],['司逸湘',2,30],['邹子慕',0,26]]);
+  assert.deepEqual(r.rows.map(r=>[e.units.find(u=>u.id===r.id).name,r.wins,r.points]),[['虚构选手05',2,32],['虚构选手06',2,31],['虚构选手07',2,30],['虚构选手08',0,26]]);
 });
 test('真实第二阶段：低位省略场保留未进行，前四不强分冠亚季殿',()=>{
   const {event:e,id}=regressionDemo();applyNextStage(e,nextStageSuggestion(e),'测试');const r=inferResults(e);
-  for(const name of ['夏熠然','胡恩泽'])assert.deepEqual([r.find(x=>x.unit===id(name)).from,r.find(x=>x.unit===id(name)).to],[1,2]);
-  for(const name of ['朱政德','杨清雅'])assert.deepEqual([r.find(x=>x.unit===id(name)).from,r.find(x=>x.unit===id(name)).to],[3,4]);
-  const missing=e.matches.find(m=>m.a===id('李冠霖')&&m.b===id('邹子慕'));assert.equal(missing.status,'pending');assert.deepEqual(missing.games,[]);
+  for(const name of ['虚构选手02','虚构选手05'])assert.deepEqual([r.find(x=>x.unit===id(name)).from,r.find(x=>x.unit===id(name)).to],[1,2]);
+  for(const name of ['虚构选手06','虚构选手03'])assert.deepEqual([r.find(x=>x.unit===id(name)).from,r.find(x=>x.unit===id(name)).to],[3,4]);
+  const missing=e.matches.find(m=>m.a===id('虚构选手01')&&m.b===id('虚构选手08'));assert.equal(missing.status,'pending');assert.deepEqual(missing.games,[]);
 });
 test('前轮误录修正仅提示影响，后续已录结果逐字段保持',()=>{
-  const {event:e,id}=regressionDemo(),source=e.matches.find(m=>[m.a,m.b].includes(id('司逸湘'))&&[m.a,m.b].includes(id('朱政德'))),later=clone(e.matches.filter(m=>m.stage!==e.stages[0].id));
-  setScore(e,source.id,[source.a===id('司逸湘')?[9,11]:[11,9]],true,'误录');assert.deepEqual(e.matches.filter(m=>m.stage!==e.stages[0].id),later);
-  setScore(e,source.id,[source.a===id('司逸湘')?[11,9]:[9,11]],true,'修正');assert.deepEqual(e.matches.filter(m=>m.stage!==e.stages[0].id),later);assert.ok(e.impacts.length>=1);
+  const {event:e,id}=regressionDemo(),source=e.matches.find(m=>[m.a,m.b].includes(id('虚构选手07'))&&[m.a,m.b].includes(id('虚构选手06'))),later=clone(e.matches.filter(m=>m.stage!==e.stages[0].id));
+  setScore(e,source.id,[source.a===id('虚构选手07')?[9,11]:[11,9]],true,'误录');assert.deepEqual(e.matches.filter(m=>m.stage!==e.stages[0].id),later);
+  setScore(e,source.id,[source.a===id('虚构选手07')?[11,9]:[9,11]],true,'修正');assert.deepEqual(e.matches.filter(m=>m.stage!==e.stages[0].id),later);assert.ok(e.impacts.length>=1);
   const last=e.impacts.at(-1);resolveImpact(e,last.id,'keep','按现场已确认对阵继续','管理员');assert.deepEqual(e.matches.filter(m=>m.stage!==e.stages[0].id),later);assert.equal(last.status,'resolved');validateEvent(e);
 });
 test('多人完全同分等待裁定，加赛单独记录不递归影响累计分',()=>{
@@ -120,5 +120,5 @@ test('拒绝未知格式、重复ID、非法比分及断裂比赛引用',()=>{
   const duplicate=clone(d);duplicate.events.push(clone(duplicate.events[0]));assert.throws(()=>validateData(duplicate));
 });
 test('全部导出保留前期、低位和未进行比赛；姓名防CSV公式注入',()=>{
-  const {event:e,id}=regressionDemo();applyNextStage(e,nextStageSuggestion(e),'测试');const c=csv(e),s=bracketSvg(e),r=reportHtml(e);for(const name of ['李冠霖','邹子慕','朱序元']){assert.ok(c.includes(name));assert.ok(s.includes(name));assert.ok(r.includes(name));}assert.ok(r.includes('1—2'));assert.ok(c.includes('未开始'));e.title='=HYPERLINK("x")';assert.ok(csv(e).includes("'=HYPERLINK"));assert.ok(s.startsWith('<svg'));
+  const {event:e,id}=regressionDemo();applyNextStage(e,nextStageSuggestion(e),'测试');const c=csv(e),s=bracketSvg(e),r=reportHtml(e);for(const name of ['虚构选手01','虚构选手08','虚构选手04']){assert.ok(c.includes(name));assert.ok(s.includes(name));assert.ok(r.includes(name));}assert.ok(r.includes('1—2'));assert.ok(c.includes('未开始'));e.title='=HYPERLINK("x")';assert.ok(csv(e).includes("'=HYPERLINK"));assert.ok(s.startsWith('<svg'));
 });

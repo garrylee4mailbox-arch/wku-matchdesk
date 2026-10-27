@@ -5,3 +5,15 @@ test-output/
 *.log
 .env
 delivery/
+# Local roster, events, credentials and maintenance archives are never source files.
+data/
+backups/
+maintenance-archives/
+state.json
+session.json
+.env.*
+*.pem
+*.key
+
+__pycache__/
+*.py[cod]
